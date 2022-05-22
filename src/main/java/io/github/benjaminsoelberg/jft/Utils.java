@@ -59,11 +59,11 @@ public class Utils {
     }
 
     public static String toJavaClassName(String nativeClassName) {
-        return nativeClassName.replace('.', '/');
+        return nativeClassName.replace('/', '.');
     }
 
     public static String toNativeClassName(String javaClassName) {
-        return javaClassName.replace('/', '.');
+        return javaClassName.replace('.', '/');
     }
 
     public static String encodeArgs(String[] args) {

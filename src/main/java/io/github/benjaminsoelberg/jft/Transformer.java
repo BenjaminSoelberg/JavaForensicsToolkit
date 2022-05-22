@@ -34,7 +34,7 @@ public class Transformer implements ClassFileTransformer {
 
             // Save the class info if it previously passed the filtering
             if (classes.contains(classBeingRedefined)) {
-                report.println("Dumping %s", nativeClassName);
+                report.println("Dumping %s", Utils.toJavaClassName(nativeClassName));
                 classInfos.add(new ClassInfo(nativeClassName, loader, protectionDomain, classfileBuffer));
             }
         } catch (Throwable throwable) {

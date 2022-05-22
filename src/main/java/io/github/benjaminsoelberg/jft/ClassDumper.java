@@ -22,10 +22,13 @@ public class ClassDumper {
         if (TEST_AGENT_CMD_LINE != null) {
             cmdline = TEST_AGENT_CMD_LINE;
         }
+
         String[] args = Utils.decodeArgs(cmdline);
         Options options = new Options(args);
+
         Report report = new Report(getHeader(), options.isVerbose(), options.isLogToStdErr());
-        report.println("Agent loaded with options: %s", String.join(" ", args));
+        report.println("Agent loaded with options: %s%n", String.join(" ", args));
+
         report.println("Querying classes...");
         Class<?>[] classes = Arrays.stream(instrumentation.getAllLoadedClasses())
                 .filter(clazz -> !clazz.isArray())
@@ -33,9 +36,10 @@ public class ClassDumper {
                 .filter(instrumentation::isModifiableClass)
                 .filter(clazz -> options.getFilterPredicate().test(clazz.getName()))
                 .toArray(Class[]::new);
+        report.println("");
 
         if (classes.length == 0) {
-            report.println("WARNING: No classes were found, bad filter ?");
+            report.println("WARNING: No classes were found, bad filter ?%n");
         }
 
         // The transformer could (as a side effect by the JVM) be called with classes not in the list which is why we pass the filtered classes to it as well
@@ -49,11 +53,13 @@ public class ClassDumper {
         } finally {
             instrumentation.removeTransformer(dumper);
         }
+        report.println("");
 
         // Validate that no exceptions were generated during the dump process
         if (dumper.getLastException() != null) {
             report.println("WARNING: One or more exceptions occurred while dumping classes.");
             report.dump(dumper.getLastException());
+            report.println("");
         }
 
         File destination = new File(options.getDestination());
@@ -70,7 +76,7 @@ public class ClassDumper {
             });
             writeZipEntry(jar, "report.txt", report.generate().getBytes(StandardCharsets.UTF_8));
         }
-        report.println("Done");
+        report.println("%nDumped classes, including report.txt, can be found in: %s", options.getDestination());
     }
 
     private static void writeZipEntry(JarOutputStream jar, String name, byte[] data) throws IOException {
@@ -101,7 +107,7 @@ public class ClassDumper {
         System.out.println("pid\tprocess id of the target java process");
         System.out.println();
         System.out.println("example:");
-        System.out.println("java -jar JavaForensicsToolkit.jar -d dump.jar -f java\\\\. -f sun\\\\. -f jdk\\\\. -f com\\\\.sun\\\\. -x 123456");
+        System.out.println("java -jar JavaForensicsToolkit.jar -d dump.jar -f java\\\\..* -f sun\\\\..* -f jdk\\\\..* -f com\\\\.sun\\\\..* -x 123456");
     }
 
     /**
