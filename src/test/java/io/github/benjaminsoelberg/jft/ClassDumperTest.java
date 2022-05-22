@@ -15,9 +15,9 @@ class ClassDumperTest {
     @Test
     void testSelfAttachCanDump() throws Exception {
         File manifestJar = createManifest(ClassDumper.class.getName());
-        ClassDumper.TEST_AGENT_CMD_LINE = Utils.encodeArgs(new String[]{"-d", "dump.jar", "123456"});
+        ClassDumper.TEST_AGENT_CMD_LINE = Utils.encodeArgs(new String[]{"-d", "target/dump.jar", "123456"});
         sun.instrument.InstrumentationImpl.loadAgent(manifestJar.getCanonicalPath());
-        Assertions.assertTrue(new File("dump.jar").exists());
+        Assertions.assertTrue(new File("target/dump.jar").exists());
     }
 
     /**
