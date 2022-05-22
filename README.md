@@ -1,5 +1,8 @@
-# JavaForensicsToolkit
-A little JavaForensicsToolkit that can dump all loaded classes within a JVM
+# Java Forensics Toolkit
+
+![broken java cup](BrokenJavaCup.jpg)
+
+A little *Java Forensics Toolkit* that can dump all loaded classes within a JVM
 ```
 usage: java -jar JavaForensicsToolkit.jar [-e] [-d destination.jar] [-f filter]... [-x] <pid>
 
