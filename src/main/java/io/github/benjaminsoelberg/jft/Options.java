@@ -70,7 +70,7 @@ public class Options {
         File file = null;
         try {
             if (destination == null || destination.isBlank()) {
-                file = Files.createTempFile("dump-" + ProcessHandle.current().pid() + "-", ".jar").toFile();
+                file = Files.createTempFile("dump-" + pid + "-", ".jar").toFile();
                 destination = file.getPath(); // We'll reuse it as destination filename in the agent
             } else {
                 file = new File(destination);
