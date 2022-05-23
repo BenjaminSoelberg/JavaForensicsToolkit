@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
@@ -12,8 +11,8 @@
 
     <scm>
         <url>https://github.com/BenjaminSoelberg/JavaForensicsToolkit</url>
-        <connection>scm:git:https://github.com/BenjaminSoelberg/JavaForensicsToolkit.git</connection>
-        <developerConnection>scm:git:https://github.com/BenjaminSoelberg/JavaForensicsToolkit.git</developerConnection>
+        <connection>scm:git:git@github.com:BenjaminSoelberg/JavaForensicsToolkit.git</connection>
+        <developerConnection>scm:git:git@github.com:BenjaminSoelberg/JavaForensicsToolkit.git</developerConnection>
     </scm>
 
     <properties>
@@ -65,9 +64,6 @@
                 <artifactId>maven-release-plugin</artifactId>
                 <configuration>
                     <tagNameFormat>@{project.version}</tagNameFormat>
-                    <checkModificationExcludes>
-                        <checkModificationExclude>pom.xml</checkModificationExclude>
-                    </checkModificationExcludes>
                 </configuration>
             </plugin>
         </plugins>

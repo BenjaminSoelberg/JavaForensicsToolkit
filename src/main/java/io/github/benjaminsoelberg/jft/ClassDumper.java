@@ -86,9 +86,9 @@ public class ClassDumper {
 
     private static String getHeader() {
         return "" +
-                "--------------------------------------------------------%n" +
-                "--> Java Forensics Toolkit v1.00 by Benjamin Sølberg <--%n" +
-                "--------------------------------------------------------%n" +
+                "---------------------------------------------------------%n" +
+                "--> Java Forensics Toolkit v1.0.1 by Benjamin Sølberg <--%n" +
+                "---------------------------------------------------------%n" +
                 "https://github.com/BenjaminSoelberg/JavaForensicsToolkit%n%n";
     }
 
