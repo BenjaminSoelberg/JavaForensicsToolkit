@@ -93,7 +93,7 @@ public class ClassDumper {
     }
 
     private static void showUsage() {
-        System.out.println("usage: java -jar JavaForensicsToolkit.jar [-e] [-d destination.jar] [-f filter]... [-x] <pid>");
+        System.out.println("usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-f filter]... [-x] <pid>");
         System.out.println();
         System.out.println("options:");
         System.out.println("-v\tverbose agent logging");
