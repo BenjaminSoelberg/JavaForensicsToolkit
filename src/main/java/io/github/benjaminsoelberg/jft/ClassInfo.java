@@ -2,7 +2,7 @@ package io.github.benjaminsoelberg.jft;
 
 import java.security.ProtectionDomain;
 
-public class ClassInfo {
+public class ClassInfo implements Comparable<ClassInfo> {
     private final String nativeClassName;
     private final ClassLoader classLoader;
     private final ProtectionDomain protectionDomain;
@@ -50,5 +50,10 @@ public class ClassInfo {
     @Override
     public String toString() {
         return String.format("%s@%s %d bytes", getClassName(), getClassLoaderName(), bytecode.length);
+    }
+
+    @Override
+    public int compareTo(ClassInfo o) {
+        return getNativeClassName().compareTo(o.getNativeClassName());
     }
 }

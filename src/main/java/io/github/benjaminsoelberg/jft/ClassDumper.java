@@ -17,6 +17,8 @@ public class ClassDumper {
     // Public and non-final for testing purposes only.
     public static String TEST_AGENT_CMD_LINE = null;
 
+    public static final int DUMP_BATCH_SIZE = 500;
+
     public static void agentmain(String cmdline, Instrumentation instrumentation) throws Exception {
         // We are unable to parse arguments to agentmain while running unit test, hence this inject-hook
         if (TEST_AGENT_CMD_LINE != null) {
@@ -31,27 +33,44 @@ public class ClassDumper {
 
         report.println("Querying classes...");
         Class<?>[] classes = Arrays.stream(instrumentation.getAllLoadedClasses())
-                .filter(clazz -> !clazz.isArray())
-                .filter(clazz -> !clazz.isSynthetic())
                 .filter(instrumentation::isModifiableClass)
                 .filter(clazz -> options.getFilterPredicate().test(clazz.getName()))
-                .toArray(Class[]::new);
+                .toArray(Class<?>[]::new);
         report.println("");
 
-        if (classes.length == 0) {
-            report.println("WARNING: No classes were found, bad filter ?%n");
-        }
-
         // The transformer could (as a side effect by the JVM) be called with classes not in the list which is why we pass the filtered classes to it as well
-        Transformer dumper = new Transformer(report, Arrays.asList(classes));
+        Transformer dumper = new Transformer(report, classes);
 
-        // Invoke the transformer and remove it when filtered classes are processed
-        report.println("Dumping started...");
-        instrumentation.addTransformer(dumper, true);
-        try {
-            instrumentation.retransformClasses(classes);
-        } finally {
-            instrumentation.removeTransformer(dumper);
+        if (classes.length > 0) {
+            report.println("%d classes found.%n", classes.length);
+            instrumentation.addTransformer(dumper, true);
+
+            report.println("Dumping started...");
+
+            // Invoke the transformer and remove it when filtered classes are processed
+            try {
+                for (int from = 0; from < classes.length; from += DUMP_BATCH_SIZE) {
+                    int to = Math.min(from + DUMP_BATCH_SIZE, classes.length);
+                    Class<?>[] batch = Arrays.copyOfRange(classes, from, to);
+                    try {
+                        // Transform the full batch in one go, and if this throws an exception, no classes have been retransformed.
+                        instrumentation.retransformClasses(batch);
+                    } catch (Throwable ignored) {
+                        // Transform classes one-by-one if batch transformation failed
+                        for (Class<?> clazz : batch) {
+                            try {
+                                instrumentation.retransformClasses(clazz);
+                            } catch (Throwable th) {
+                                report.println("Failed to dump %s", clazz.getName());
+                            }
+                        }
+                    }
+                }
+            } finally {
+                instrumentation.removeTransformer(dumper);
+            }
+        } else {
+            report.println("WARNING: No classes found, bad filter ?%n");
         }
         report.println("");
 
@@ -66,10 +85,10 @@ public class ClassDumper {
 
         report.println("Creating jar...");
         try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(destination))) {
-            dumper.getClassInfos().forEach(classInfo -> {
+            dumper.getClassInfos().stream().sorted().forEach(classInfo -> {
                 try {
                     report.dump(classInfo);
-                    writeZipEntry(jar, classInfo.getClassName() + ".class", classInfo.getBytecode());
+                    writeZipEntry(jar, classInfo.getNativeClassName() + ".class", classInfo.getBytecode());
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -87,7 +106,7 @@ public class ClassDumper {
     private static String getHeader() {
         return "" +
                 "---------------------------------------------------------%n" +
-                "--> Java Forensics Toolkit v1.0.1 by Benjamin Sølberg <--%n" +
+                "--> Java Forensics Toolkit v1.0.2 by Benjamin Sølberg <--%n" +
                 "---------------------------------------------------------%n" +
                 "https://github.com/BenjaminSoelberg/JavaForensicsToolkit%n%n";
     }

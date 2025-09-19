@@ -2,6 +2,7 @@ package io.github.benjaminsoelberg.jft;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.security.ProtectionDomain;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -13,9 +14,9 @@ public class Transformer implements ClassFileTransformer {
     private final List<Class<?>> classes;
     private volatile Throwable lastException;
 
-    public Transformer(Report report, List<Class<?>> classes) {
+    public Transformer(Report report, Class<?>[] classes) {
         this.report = report;
-        this.classes = classes;
+        this.classes = Arrays.asList(classes);
     }
 
     @Override
@@ -28,7 +29,7 @@ public class Transformer implements ClassFileTransformer {
         try {
             // Ignore our own classes
             if (nativeClassName.startsWith(FILTER_JFT_CLASSES)) {
-                report.println("Ignoring %s", nativeClassName);
+                report.println("Ignoring %s", classBeingRedefined.getName());
                 return null;
             }
 
