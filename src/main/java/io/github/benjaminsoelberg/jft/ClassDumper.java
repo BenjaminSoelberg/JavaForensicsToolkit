@@ -9,6 +9,7 @@ import java.lang.instrument.Instrumentation;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 
@@ -32,10 +33,7 @@ public class ClassDumper {
         report.println("Agent loaded with options: %s%n", String.join(" ", args));
 
         report.println("Querying classes...");
-        Class<?>[] classes = Arrays.stream(instrumentation.getAllLoadedClasses())
-                .filter(instrumentation::isModifiableClass)
-                .filter(clazz -> options.getFilterPredicate().test(clazz.getName()))
-                .toArray(Class<?>[]::new);
+        Class<?>[] classes = getAllLoadedClasses(instrumentation, options);
         report.println("");
 
         // The transformer could (as a side effect by the JVM) be called with classes not in the list which is why we pass the filtered classes to it as well
@@ -46,26 +44,9 @@ public class ClassDumper {
             instrumentation.addTransformer(dumper, true);
 
             report.println("Dumping started...");
-
             // Invoke the transformer and remove it when filtered classes are processed
             try {
-                for (int from = 0; from < classes.length; from += DUMP_BATCH_SIZE) {
-                    int to = Math.min(from + DUMP_BATCH_SIZE, classes.length);
-                    Class<?>[] batch = Arrays.copyOfRange(classes, from, to);
-                    try {
-                        // Transform the full batch in one go, and if this throws an exception, no classes have been retransformed.
-                        instrumentation.retransformClasses(batch);
-                    } catch (Throwable ignored) {
-                        // Transform classes one-by-one if batch transformation failed
-                        for (Class<?> clazz : batch) {
-                            try {
-                                instrumentation.retransformClasses(clazz);
-                            } catch (Throwable th) {
-                                report.println("Failed to dump %s", clazz.getName());
-                            }
-                        }
-                    }
-                }
+                retransformClasses(instrumentation, classes, report);
             } finally {
                 instrumentation.removeTransformer(dumper);
             }
@@ -76,7 +57,7 @@ public class ClassDumper {
 
         // Validate that no exceptions were generated during the dump process
         if (dumper.getLastException() != null) {
-            report.println("WARNING: One or more exceptions occurred while dumping classes.");
+            report.println("WARNING: One or more transformer exceptions occurred while dumping classes.");
             report.dump(dumper.getLastException());
             report.println("");
         }
@@ -85,10 +66,12 @@ public class ClassDumper {
 
         report.println("Creating jar...");
         try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(destination))) {
-            dumper.getClassInfos().stream().sorted().forEach(classInfo -> {
+            dumper.getClassInfos().entrySet().stream().sorted(Comparator.comparing(o -> o.getKey().getName())).forEach(entry -> {
+                Class<?> clazz = entry.getKey();
+                byte[] bytecode = entry.getValue();
                 try {
-                    report.dump(classInfo);
-                    writeZipEntry(jar, classInfo.getNativeClassName() + ".class", classInfo.getBytecode());
+                    report.dump(clazz, bytecode);
+                    writeZipEntry(jar, Utils.toNativeClassName(clazz.getName()) + ".class", bytecode);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -98,21 +81,53 @@ public class ClassDumper {
         report.println("%nDumped classes, including report.txt, can be found in: %s", options.getDestination());
     }
 
+    private static Class<?>[] getAllLoadedClasses(Instrumentation instrumentation, Options options) {
+        return Arrays.stream(instrumentation.getAllLoadedClasses())
+                .filter(instrumentation::isModifiableClass)
+                .filter(clazz -> options.getFilterPredicate().test(clazz.getName()))
+                .filter(clazz -> !options.isIgnoreSystemClassloader() || clazz.getClassLoader() != null)
+                .filter(clazz -> !options.isIgnorePlatformClassloader() || clazz.getClassLoader() != ClassLoader.getPlatformClassLoader())
+                .sorted(Comparator.comparing(Class::getName))
+                .toArray(Class<?>[]::new);
+    }
+
+    private static void retransformClasses(Instrumentation instrumentation, Class<?>[] classes, Report report) {
+        for (int from = 0; from < classes.length; from += DUMP_BATCH_SIZE) {
+            int to = Math.min(from + DUMP_BATCH_SIZE, classes.length);
+            Class<?>[] batch = Arrays.copyOfRange(classes, from, to);
+            try {
+                // Transform the full batch in one go, and if this throws an exception some classes may have been dumped but we deduplicate later on.
+                instrumentation.retransformClasses(batch);
+            } catch (Throwable ignored) {
+                // Transform classes one-by-one if batch transformation failed
+                for (Class<?> clazz : batch) {
+                    try {
+                        instrumentation.retransformClasses(clazz);
+                    } catch (Throwable th) {
+                        report.println("Failed to dump %s", clazz.getName());
+                    }
+                }
+            }
+        }
+    }
+
+
     private static void writeZipEntry(JarOutputStream jar, String name, byte[] data) throws IOException {
         jar.putNextEntry(new ZipEntry(name));
         jar.write(data);
     }
 
+    @SuppressWarnings("ConcatenationWithEmptyString")
     private static String getHeader() {
         return "" +
                 "---------------------------------------------------------%n" +
-                "--> Java Forensics Toolkit v1.0.2 by Benjamin Sølberg <--%n" +
+                "--> Java Forensics Toolkit v1.1.0 by Benjamin Sølberg <--%n" +
                 "---------------------------------------------------------%n" +
                 "https://github.com/BenjaminSoelberg/JavaForensicsToolkit%n%n";
     }
 
     private static void showUsage() {
-        System.out.println("usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-f filter]... [-x] <pid>");
+        System.out.println("usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-s] [-p] [-f filter]... [-x] <pid>");
         System.out.println();
         System.out.println("options:");
         System.out.println("-v\tverbose agent logging");
@@ -120,13 +135,15 @@ public class ClassDumper {
         System.out.println("-d\tjar file destination of dumped classes");
         System.out.println("\tRelative paths will be relative with respect to the target process.");
         System.out.println("\tA jar file in temp will be generated if no destination was provided.");
+        System.out.println("-s\tignore system class loader (like java.lang.String)");
+        System.out.println("-p\tignore platform class loader (like system extensions)");
         System.out.println("-f\tregular expression class name filter");
         System.out.println("\tCan be specified multiple times.");
         System.out.println("-x\texclude classes matching the filter");
         System.out.println("pid\tprocess id of the target java process");
         System.out.println();
         System.out.println("example:");
-        System.out.println("java -jar JavaForensicsToolkit.jar -d dump.jar -f java\\\\..* -f sun\\\\..* -f jdk\\\\..* -f com\\\\.sun\\\\..* -x 123456");
+        System.out.println("java -jar JavaForensicsToolkit.jar -d dump.jar -f 'java\\\\..*' -f 'sun\\\\..*' -f 'jdk\\\\..*' -f 'com\\\\.sun\\\\..*' -x 123456");
     }
 
     /**

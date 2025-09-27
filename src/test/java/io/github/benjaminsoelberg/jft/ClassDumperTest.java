@@ -28,6 +28,7 @@ class ClassDumperTest {
      * @return a temp jar file containing the manifest needed for testing. Note that it will be deleted upon JVM exit.
      * @throws IOException if the jar file could not be created.
      */
+    @SuppressWarnings("ConcatenationWithEmptyString")
     private File createManifest(String mainClass) throws IOException {
         String manifestContent = String.format("" +
                 "Manifest-Version: 1.0%n" +

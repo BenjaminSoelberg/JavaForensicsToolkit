@@ -73,4 +73,17 @@ public class Utils {
     public static String[] decodeArgs(String args) {
         return Arrays.stream(args.split(" ")).map(Utils::fromHex).map(Utils::toUtf8String).collect(Collectors.toList()).toArray(new String[]{});
     }
+
+    public static String toClassLoaderName(Class<?> clazz) {
+        ClassLoader classLoader = clazz.getClassLoader();
+        if (classLoader == null) {
+            return Utils.toObjectId(null);
+        }
+
+        return String.format(
+                "%s%s@%s",
+                classLoader.getClass().getName(),
+                classLoader.getName() != null ? (String.format("(%s)", classLoader.getName())) : "",
+                Integer.toHexString(classLoader.hashCode()));
+    }
 }

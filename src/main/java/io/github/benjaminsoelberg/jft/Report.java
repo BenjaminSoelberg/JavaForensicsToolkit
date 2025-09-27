@@ -37,8 +37,8 @@ public class Report {
         add(Utils.toString(throwable));
     }
 
-    public void dump(ClassInfo classInfo) {
-        println("Class info: " + classInfo.toString());
+    public void dump(Class<?> clazz, byte[] bytecode) {
+        println("Class info: %s via %s, %d bytes", clazz.getName(), Utils.toClassLoaderName(clazz), bytecode.length);
     }
 
     public String generate() {

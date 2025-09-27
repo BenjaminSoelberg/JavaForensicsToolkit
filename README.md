@@ -20,17 +20,22 @@ Designed for **forensic analysis, debugging, and reverse engineering**, making i
 
 Download the latest release JAR from [here](https://github.com/BenjaminSoelberg/JavaForensicsToolkit/releases).
 
+## build
+```
+mvn clean package
+```
+
 ## Usage
 
 ```
 java -jar JavaForensicsToolkit-<version>.jar 
 
 ---------------------------------------------------------
---> Java Forensics Toolkit v1.0.2 by Benjamin Sølberg <--
+--> Java Forensics Toolkit v1.1.0 by Benjamin Sølberg <--
 ---------------------------------------------------------
 https://github.com/BenjaminSoelberg/JavaForensicsToolkit
 
-usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-f filter]... [-x] <pid>
+usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-s] [-p] [-f filter]... [-x] <pid>
 
 options:
 -v      verbose agent logging
@@ -38,13 +43,15 @@ options:
 -d      jar file destination of dumped classes
         Relative paths will be relative with respect to the target process.
         A jar file in temp will be generated if no destination was provided.
+-s      ignore system class loader (like java.lang.String)
+-p      ignore platform class loader (like system extensions)
 -f      regular expression class name filter
         Can be specified multiple times.
 -x      exclude classes matching the filter
 pid     process id of the target java process
 
 example:
-java -jar JavaForensicsToolkit.jar -d dump.jar -f java\\..* -f sun\\..* -f jdk\\..* -f com\\.sun\\..* -x 123456
+java -jar JavaForensicsToolkit.jar -d dump.jar -f 'java\\..*' -f 'sun\\..*' -f 'jdk\\..*' -f 'com\\.sun\\..*' -x 123456
 ```
 
 ## Example

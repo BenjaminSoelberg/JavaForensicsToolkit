@@ -11,12 +11,16 @@ public class Options {
     public static final String VERBOSE_OPTION = "-v";
     public static final String LOG_TO_STD_ERR_OPTION = "-e";
     public static final String DESTINATION_OPTION = "-d";
+    public static final String IGNORE_SYSTEM_CLASS_LOADER_OPTION = "-s";
+    public static final String IGNORE_PLATFORM_CLASS_LOADER_OPTION = "-p";
     public static final String FILTER_OPTION = "-f";
     public static final String INVERTED_FILTER_OPTION = "-x";
     private final ArrayList<Pattern> filter = new ArrayList<>();
     private boolean verbose;
     private boolean logToStdErr;
     private String destination;
+    private boolean ignoreSystemClassloader;
+    private boolean ignorePlatformClassloader;
     private boolean invertedFilter;
     private String pid;
 
@@ -40,13 +44,19 @@ public class Options {
                         case FILTER_OPTION:
                             filter.add(Pattern.compile(iterator.next()));
                             break;
+                        case IGNORE_SYSTEM_CLASS_LOADER_OPTION:
+                            ignoreSystemClassloader = true;
+                            break;
+                        case IGNORE_PLATFORM_CLASS_LOADER_OPTION:
+                            ignorePlatformClassloader = true;
+                            break;
                         case INVERTED_FILTER_OPTION:
                             invertedFilter = true;
                             break;
                         default:
                             throw new ParserException(String.format("Unknown option [%s]", token));
                     }
-                } catch (NoSuchElementException nsee) {
+                } catch (NoSuchElementException ignored) {
                     throw new ParserException(String.format("Too few arguments for [%s]", token));
                 }
             } else {
@@ -102,6 +112,12 @@ public class Options {
             args.add(DESTINATION_OPTION);
             args.add(destination);
         }
+        if (ignoreSystemClassloader) {
+            args.add(IGNORE_SYSTEM_CLASS_LOADER_OPTION);
+        }
+        if (ignorePlatformClassloader) {
+            args.add(IGNORE_PLATFORM_CLASS_LOADER_OPTION);
+        }
         for (Pattern p : filter) {
             args.add(FILTER_OPTION);
             args.add(p.pattern());
@@ -133,6 +149,14 @@ public class Options {
 
     public boolean isInvertedFilter() {
         return invertedFilter;
+    }
+
+    public boolean isIgnoreSystemClassloader() {
+        return ignoreSystemClassloader;
+    }
+
+    public boolean isIgnorePlatformClassloader() {
+        return ignorePlatformClassloader;
     }
 
     public String getDestination() {
