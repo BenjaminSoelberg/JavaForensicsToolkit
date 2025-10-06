@@ -48,7 +48,7 @@
                 <configuration>
                     <archive>
                         <manifestEntries>
-                            <Main-Class>io.github.benjaminsoelberg.jft.ClassDumper</Main-Class>
+                            <Main-Class>io.github.benjaminsoelberg.jft.Main</Main-Class>
                             <Agent-Class>io.github.benjaminsoelberg.jft.ClassDumper</Agent-Class>
                             <Can-Retransform-Classes>true</Can-Retransform-Classes>
                         </manifestEntries>

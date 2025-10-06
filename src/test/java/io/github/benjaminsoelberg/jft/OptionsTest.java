@@ -70,7 +70,7 @@ class OptionsTest {
                 "-f", "com\\.sun\\..*",
                 "-f", "has spaces in filter",
                 "-x",
-                "123456"
+                "1337"
         };
 
         Options options = new Options(args);
@@ -88,6 +88,6 @@ class OptionsTest {
         Assertions.assertFalse(options.getFilterPredicate().test("has spaces in filter"));
         Assertions.assertTrue(options.getFilterPredicate().test("has spaces in filter."));
         Assertions.assertTrue(options.getFilterPredicate().test(".has spaces in filter"));
-        Assertions.assertEquals("123456", options.getPid());
+        Assertions.assertEquals("1337", options.getPid());
     }
 }

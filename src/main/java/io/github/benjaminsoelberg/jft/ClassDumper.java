@@ -1,15 +1,16 @@
 package io.github.benjaminsoelberg.jft;
 
-import com.sun.tools.attach.VirtualMachine;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.security.ProtectionDomain;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 
@@ -18,175 +19,181 @@ public class ClassDumper {
     // Public and non-final for testing purposes only.
     public static String TEST_AGENT_CMD_LINE = null;
 
-    public static final int DUMP_BATCH_SIZE = 500;
+    public static final int DUMP_BATCH_SIZE = 100;
 
+    private final Instrumentation instrumentation;
+    private final Options options;
+    private final Report report;
+    private final ClassTree classTree = new ClassTree();
+    private final AtomicReference<Class<?>> latestDumpedClass = new AtomicReference<>();
+    private final AtomicReference<Throwable> latestException = new AtomicReference<>();
+
+    @SuppressWarnings("ReassignedVariable")
     public static void agentmain(String cmdline, Instrumentation instrumentation) throws Exception {
+        /* Stage 0: Override command line options if running a unit test */
         // We are unable to parse arguments to agentmain while running unit test, hence this inject-hook
         if (TEST_AGENT_CMD_LINE != null) {
             cmdline = TEST_AGENT_CMD_LINE;
         }
 
-        String[] args = Utils.decodeArgs(cmdline);
-        Options options = new Options(args);
+        new ClassDumper(cmdline, instrumentation);
+    }
 
-        Report report = new Report(getHeader(), options.isVerbose(), options.isLogToStdErr());
+    public ClassDumper(String cmdline, Instrumentation instrumentation) throws ParserException, IOException {
+        this.instrumentation = instrumentation;
+
+        /* Stage 1: decode options */
+        String[] args = Utils.decodeArgs(cmdline);
+        options = new Options(args);
+
+        /* Stage 2: initialize report */
+        report = new Report(Utils.getApplicationHeader(), options.isVerbose(), options.isLogToStdErr());
         report.println("Agent loaded with options: %s%n", String.join(" ", args));
 
+        /* Stage 3: query all loaded classes */
         report.println("Querying classes...");
-        Class<?>[] classes = getAllLoadedClasses(instrumentation, options);
-        report.println("");
+        List<Class<?>> classes = new ArrayList<>(Arrays.asList(getFilteredClasses()));
 
-        // The transformer could (as a side effect by the JVM) be called with classes not in the list which is why we pass the filtered classes to it as well
-        Transformer dumper = new Transformer(report, classes);
+        /* Stage 4: initialize transformer */
+        // The transformer could (as a side effect) be called with classes not in the list which is why we pass the filtered classes list
+        final ClassFileTransformer transformer = createTransformer(classes);
 
-        if (classes.length > 0) {
-            report.println("%d classes found.%n", classes.length);
-            instrumentation.addTransformer(dumper, true);
+        if (!classes.isEmpty()) {
+            /* Stage 5: add transformer */
+            report.println("%d classes found.%n", classes.size());
+            instrumentation.addTransformer(transformer, true);
 
-            report.println("Dumping started...");
-            // Invoke the transformer and remove it when filtered classes are processed
-            try {
-                retransformClasses(instrumentation, classes, report);
-            } finally {
-                instrumentation.removeTransformer(dumper);
-            }
+            /* Stage 6: dump all classes in filtered list */
+            report.println("Dumping classes...");
+            dumpClasses(classes, transformer);
+
+            /* Stage 7: print class loader & class tree */
+            report.println("Class loader & class tree...");
+            dumpNodeToReport(classTree.getRoot(), "");
         } else {
             report.println("WARNING: No classes found, bad filter ?%n");
         }
-        report.println("");
 
-        // Validate that no exceptions were generated during the dump process
-        if (dumper.getLastException() != null) {
-            report.println("WARNING: One or more transformer exceptions occurred while dumping classes.");
-            report.dump(dumper.getLastException());
-            report.println("");
-        }
-
-        File destination = new File(options.getDestination());
-
+        /* Stage 8: create the jar */
         report.println("Creating jar...");
-        try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(destination))) {
-            dumper.getClassInfos().entrySet().stream().sorted(Comparator.comparing(o -> o.getKey().getName())).forEach(entry -> {
-                Class<?> clazz = entry.getKey();
-                byte[] bytecode = entry.getValue();
-                try {
-                    report.dump(clazz, bytecode);
-                    writeZipEntry(jar, Utils.toNativeClassName(clazz.getName()) + ".class", bytecode);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-            writeZipEntry(jar, "report.txt", report.generate().getBytes(StandardCharsets.UTF_8));
-        }
-        report.println("%nDumped classes, including report.txt, can be found in: %s", options.getDestination());
+        writeJar();
     }
 
-    private static Class<?>[] getAllLoadedClasses(Instrumentation instrumentation, Options options) {
+    private Class<?>[] getFilteredClasses() {
         return Arrays.stream(instrumentation.getAllLoadedClasses())
                 .filter(instrumentation::isModifiableClass)
                 .filter(clazz -> options.getFilterPredicate().test(clazz.getName()))
-                .filter(clazz -> !options.isIgnoreSystemClassloader() || clazz.getClassLoader() != null)
-                .filter(clazz -> !options.isIgnorePlatformClassloader() || clazz.getClassLoader() != ClassLoader.getPlatformClassLoader())
+                .filter(clazz -> !(options.isIgnoreSystemClassloader() && clazz.getClassLoader() == null))
+                .filter(clazz -> !(options.isIgnorePlatformClassloader() && clazz.getClassLoader() == ClassLoader.getPlatformClassLoader()))
+                .filter(clazz -> clazz.getPackage() != this.getClass().getPackage())
                 .sorted(Comparator.comparing(Class::getName))
                 .toArray(Class<?>[]::new);
     }
 
-    private static void retransformClasses(Instrumentation instrumentation, Class<?>[] classes, Report report) {
-        for (int from = 0; from < classes.length; from += DUMP_BATCH_SIZE) {
-            int to = Math.min(from + DUMP_BATCH_SIZE, classes.length);
-            Class<?>[] batch = Arrays.copyOfRange(classes, from, to);
-            try {
-                // Transform the full batch in one go, and if this throws an exception some classes may have been dumped but we deduplicate later on.
-                instrumentation.retransformClasses(batch);
-            } catch (Throwable ignored) {
-                // Transform classes one-by-one if batch transformation failed
-                for (Class<?> clazz : batch) {
-                    try {
-                        instrumentation.retransformClasses(clazz);
-                    } catch (Throwable th) {
-                        report.println("Failed to dump %s", clazz.getName());
+    private ClassFileTransformer createTransformer(List<Class<?>> classes) {
+        return new ClassFileTransformer() {
+            @Override
+            public byte[] transform(Module module, ClassLoader loader, String nativeClassName, Class<?> classBeingRedefined, ProtectionDomain protectionDomain, byte[] classfileBuffer) {
+                latestDumpedClass.set(null);
+
+                try {
+                    // Ignore initial class load etc. as we only want to dump classes that was previously accepted by the filter
+                    if (nativeClassName == null || classBeingRedefined == null || classfileBuffer == null) {
+                        return null;
                     }
+
+                    // Save the class info if not previously processed
+                    if (classes.contains(classBeingRedefined)) {
+                        if (classes.remove(classBeingRedefined)) {
+                            latestDumpedClass.set(classBeingRedefined);
+                            report.println("Dumping %s (%d bytes)", Utils.toJavaClassName(nativeClassName), classfileBuffer.length);
+                            classTree.add(classBeingRedefined, classfileBuffer);
+                        }
+                    }
+                } catch (Throwable th) {
+                    // Keep latest exception for later retrieval
+                    latestException.set(th);
+                }
+
+                // Signal that no changes were made to the bytecode
+                return null;
+            }
+        };
+    }
+
+    private void dumpClasses(List<Class<?>> classes, ClassFileTransformer transformer) {
+        // Invoke the transformer and remove it when filtered classes are processed
+        try {
+            while (!classes.isEmpty()) {
+                final Class<?>[] batch = classes.subList(0, Math.min(DUMP_BATCH_SIZE, classes.size())).toArray(new Class[0]);
+                try {
+                    instrumentation.retransformClasses(batch);
+                } catch (ClassFormatError | InternalError ignored) {
+                    // Some transformations might fail even so no bytecode was changed.
+                    // And we have no other way to track which class that actually failed
+                    final Class<?> ldc = latestDumpedClass.get();
+                    // We only care about the classes we actually dump
+                    if (ldc != null) {
+                        report.println("WARNING: %s might have invalid bytecode", ldc.getName());
+                    }
+                } catch (Throwable th) {
+                    report.println("Fatal error: Failed to dump classes");
+                    report.dump(th);
+                    break;
                 }
             }
+        } finally {
+            instrumentation.removeTransformer(transformer);
+        }
+        report.println("");
+    }
+
+    private void writeJar() throws IOException {
+        ClassTree.Node root = classTree.getRoot();
+        File destination = new File(options.getDestination());
+        try (JarOutputStream jar = new JarOutputStream(new FileOutputStream(destination))) {
+            String base = Utils.toClassLoaderName(root.getLoader()) + "/";
+            dumpNodeToJar(jar, root, base);
+
+            // Validate that no exceptions were generated during the dump process and if so display it last in the report
+            Throwable th = latestException.get();
+            if (th != null) {
+                report.println("WARNING: One or more transformer exceptions occurred while dumping classes.");
+                report.dump(th);
+                report.println("");
+            }
+
+            /* Stage 9: finalize the dump */
+            report.println("Done!%n%nDumped classes, including report.txt, can be found in: %s", destination.getAbsolutePath());
+            writeZipEntry(jar, "report.txt", Utils.fromUtf8String(report.generate()));
         }
     }
 
+    private void dumpNodeToJar(JarOutputStream jar, ClassTree.Node node, String base) {
+        node.getClasses().forEach((clazz, bytecode) -> {
+            try {
+                writeZipEntry(jar, base + Utils.toNativeClassName(clazz.getName()) + ".class", bytecode);
+            } catch (IOException e) {
+                throw new RuntimeException(String.format("Failed to add %s with size %d to jar", clazz.getName(), bytecode.length), e);
+            }
+        });
 
-    private static void writeZipEntry(JarOutputStream jar, String name, byte[] data) throws IOException {
+        for (ClassTree.Node child : node.getChildren()) {
+            dumpNodeToJar(jar, child, base + Utils.toClassLoaderName(child.getLoader()) + "/");
+        }
+    }
+
+    private void dumpNodeToReport(ClassTree.Node node, String indentation) {
+        final String indent = "    ";
+        report.println(indentation + Utils.toClassLoaderName(node.getLoader()));
+        node.getClasses().forEach((clazz, bytecode) -> report.println(indentation + indent + clazz.getName()));
+        report.println("");
+        node.getChildren().forEach(child -> dumpNodeToReport(child, indentation + indent));
+    }
+
+    private void writeZipEntry(JarOutputStream jar, String name, byte[] data) throws IOException {
         jar.putNextEntry(new ZipEntry(name));
         jar.write(data);
-    }
-
-    @SuppressWarnings("ConcatenationWithEmptyString")
-    private static String getHeader() {
-        return "" +
-                "---------------------------------------------------------%n" +
-                "--> Java Forensics Toolkit v1.1.0 by Benjamin Sølberg <--%n" +
-                "---------------------------------------------------------%n" +
-                "https://github.com/BenjaminSoelberg/JavaForensicsToolkit%n%n";
-    }
-
-    private static void showUsage() {
-        System.out.println("usage: java -jar JavaForensicsToolkit.jar [-v] [-e] [-d destination.jar] [-s] [-p] [-f filter]... [-x] <pid>");
-        System.out.println();
-        System.out.println("options:");
-        System.out.println("-v\tverbose agent logging");
-        System.out.println("-e\tagent will log to stderr instead of stdout");
-        System.out.println("-d\tjar file destination of dumped classes");
-        System.out.println("\tRelative paths will be relative with respect to the target process.");
-        System.out.println("\tA jar file in temp will be generated if no destination was provided.");
-        System.out.println("-s\tignore system class loader (like java.lang.String)");
-        System.out.println("-p\tignore platform class loader (like system extensions)");
-        System.out.println("-f\tregular expression class name filter");
-        System.out.println("\tCan be specified multiple times.");
-        System.out.println("-x\texclude classes matching the filter");
-        System.out.println("pid\tprocess id of the target java process");
-        System.out.println();
-        System.out.println("example:");
-        System.out.println("java -jar JavaForensicsToolkit.jar -d dump.jar -f 'java\\\\..*' -f 'sun\\\\..*' -f 'jdk\\\\..*' -f 'com\\\\.sun\\\\..*' -x 123456");
-    }
-
-    /**
-     * Get the absolut file location of the jar embedding this class
-     *
-     * @return absolut file location of jar
-     */
-    private static String getJarLocation() {
-        URL url = ClassDumper.class.getProtectionDomain().getCodeSource().getLocation();
-        String file = url.getFile();
-        if (url.getProtocol().equals("file") && file.startsWith("/") && file.endsWith(".jar")) {
-            return file;
-        }
-        return null;
-    }
-
-    public static void main(String[] args) throws Exception {
-        System.out.printf(getHeader());
-        String absolutJarLocation = getJarLocation();
-        if (args.length < 1 || absolutJarLocation == null) {
-            showUsage();
-            System.exit(1);
-        }
-
-        // We pre-parse the command line to be sure that it is syntactically correct prior to sending it to agentmain
-        Options options = new Options(args);
-
-        String pid = options.getPid();
-        System.out.println("Injecting agent into JVM with pid: " + pid);
-        VirtualMachine vm = VirtualMachine.attach(pid);
-        try {
-            System.out.println("Dumping classes to: " + options.getDestination());
-            String[] cmdLine = options.getArgs();
-            vm.loadAgent(absolutJarLocation, Utils.encodeArgs(cmdLine));
-        } finally {
-            try {
-                vm.detach();
-            } catch (IOException ioe) {
-                System.out.println("Unable to detach from process");
-            }
-        }
-
-        System.out.println("Done");
     }
 
 }

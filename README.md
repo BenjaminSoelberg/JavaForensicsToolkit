@@ -1,6 +1,6 @@
 # Easy and compact Java Forensics Toolkit
 
-![broken java cup](BrokenJavaCup.jpg)
+![JFT](JFT.jpg)
 
 # Java Forensics Toolkit
 
@@ -51,15 +51,15 @@ options:
 pid     process id of the target java process
 
 example:
-java -jar JavaForensicsToolkit.jar -d dump.jar -f 'java\\..*' -f 'sun\\..*' -f 'jdk\\..*' -f 'com\\.sun\\..*' -x 123456
+java -jar JavaForensicsToolkit.jar -d dump.jar -f 'java\\..*' -f 'sun\\..*' -f 'jdk\\..*' -f 'com\\.sun\\..*' -x 1337
 ```
 
 ## Example
 
-Dump all non-JDK classes from a running process with PID 123456:
+Dump all non-JDK classes loaders from a running process with PID 1337:
 
 ```
-java -jar JavaForensicsToolkit.jar -v -d dump.jar -f java\\..* -f sun\\..* -f jdk\\..* -f com\\.sun\\..* -x 123456
+java -jar JavaForensicsToolkit.jar -v -s -p -d dump.jar 1337
 ```
 
 ## Typical Use Cases

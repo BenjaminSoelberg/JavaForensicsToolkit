@@ -74,16 +74,41 @@ public class Utils {
         return Arrays.stream(args.split(" ")).map(Utils::fromHex).map(Utils::toUtf8String).collect(Collectors.toList()).toArray(new String[]{});
     }
 
-    public static String toClassLoaderName(Class<?> clazz) {
-        ClassLoader classLoader = clazz.getClassLoader();
+    @SuppressWarnings("ConstantConditions")
+    public static String toClassLoaderName(ClassLoader classLoader) {
         if (classLoader == null) {
-            return Utils.toObjectId(null);
+            return toClassLoaderName(classLoader, "bootloader", false);
+        } else if (classLoader == ClassLoader.getPlatformClassLoader()) {
+            return toClassLoaderName(classLoader, "platform", false);
+        } else if (classLoader == ClassLoader.getSystemClassLoader()) {
+            return toClassLoaderName(classLoader, "app", false);
+        } else {
+            return toClassLoaderName(classLoader, "", true);
         }
+    }
 
-        return String.format(
-                "%s%s@%s",
-                classLoader.getClass().getName(),
-                classLoader.getName() != null ? (String.format("(%s)", classLoader.getName())) : "",
-                Integer.toHexString(classLoader.hashCode()));
+    private static String toClassLoaderName(ClassLoader classLoader, String defaultName, boolean appendClassName) {
+        String name = defaultName.trim();
+        if (classLoader != null) {
+            if (classLoader.getName() != null && !classLoader.getName().trim().isBlank()) {
+                name = classLoader.getName().trim();
+            }
+            if (appendClassName) {
+                if (!name.isBlank()) {
+                    name += "_";
+                }
+                name += toObjectId(classLoader);
+            }
+        }
+        return "[" + name + "]";
+    }
+
+    @SuppressWarnings("ConcatenationWithEmptyString")
+    public static String getApplicationHeader() {
+        return "" +
+               "---------------------------------------------------------%n" +
+               "--> Java Forensics Toolkit v1.1.0 by Benjamin Sølberg <--%n" +
+               "---------------------------------------------------------%n" +
+               "https://github.com/BenjaminSoelberg/JavaForensicsToolkit%n";
     }
 }
